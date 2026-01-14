@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ATOMIC - Perfect Sync Ver.</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; user-select: none; font-family: 'Segoe UI', sans-serif; }
+        #game-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+        }
+        .screen {
+            background: transparent;
+            padding: 40px; 
+            text-align: center; color: white; pointer-events: auto;
+        }
+        h1 { 
+            margin: 0 0 40px 0; font-size: 80px; color: #fff; 
+            text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff; 
+            font-weight: 900; font-style: italic; letter-spacing: 5px;
+            font-family: 'Arial Black', sans-serif;
+        }
+        button {
+            padding: 20px 80px; font-size: 30px; font-weight: bold;
+            color: #000; background: #00ffff;
+            border: none; border-radius: 0px;
+            cursor: pointer;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+            transition: 0.2s;
+            clip-path: polygon(10% 0, 100% 0, 100% 90%, 90% 100%, 0 100%, 0 10%);
+        }
+        button:hover { transform: scale(1.1); background: #fff; box-shadow: 0 0 50px #00ffff; }
+
+        #victory-screen h2 {
+            font-size: 70px; color: #ffd700;
+            text-shadow: 0 0 20px #ff6600, 0 0 40px #ffcc00;
+            margin-bottom: 20px;
+            font-family: 'Arial Black', sans-serif;
+            font-style: italic;
+        }
+        #victory-screen p {
+            font-size: 30px; color: #fff; margin: 0;
+            text-shadow: 0 0 10px #000;
+        }
+        #countdown-box {
+            font-size: 100px; font-weight: bold; color: #00ffff;
+            text-shadow: 0 0 30px #00ffff;
+            margin-top: 20px;
+        }
+
+        #hud {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 30px; z-index: 10;
+        }
+        .stat {
+            background: rgba(0, 0, 0, 0.5); padding: 10px 25px; 
+            color: #00ffff; font-weight: bold; font-size: 22px; border: 1px solid #00ffff;
+            display: flex; align-items: center; gap: 10px;
+            clip-path: polygon(10% 0, 100% 0, 100% 100%, 0 100%, 0 0);
+        }
+        #boss-hp-container {
+            position: absolute; top: 90px; left: 50%; transform: translateX(-50%);
+            width: 400px; height: 25px; background: #111; border: 2px solid #ff0055;
+            display: none; overflow: hidden;
+        }
+        #boss-hp-bar { width: 100%; height: 100%; background: #ff0055; transition: width 0.2s; }
+        
+        .floating-text {
+            position: absolute; font-weight: 900; pointer-events: none; text-shadow: 2px 2px 0px black; font-family: monospace;
+        }
+        .hp-text { font-size: 20px; color: #fff; transform: translate(-50%, -150%); } 
+        .player-score-label { 
+            position: absolute; font-size: 28px; font-weight: bold; color: #00ffff; 
+            text-shadow: 0 0 10px #00a8ff;
+            transform: translate(-50%, -100%); pointer-events: none; z-index: 20;
+        }
+        .damage-text { font-size: 30px; animation: floatUp 0.8s forwards; text-shadow: 3px 3px 0px #000; }
+        @keyframes floatUp { from { transform: translateY(0) scale(1); opacity: 1; } to { transform: translateY(-80px) scale(1.5); opacity: 0; } }
+    </style>
+</head>
+<body>
+
+<audio id="bgm" loop>
+    <source src="Smile.dk - Koko Soko (AKIBA KOUBOU Eurobeat Remix) [A0tP3Z6ZkOY].mp3" type="audio/ogg">
+</audio>
+
+<div id="game-container"></div>
+<div id="player-score-label" class="player-score-label" style="display:none;">1</div>
+
+<div id="hud" style="display: none;">
+    <div class="stat"><span style="color:#00ffff">Unit</span> <span id="score-display">1</span></div>
+    <div class="stat"><span style="color:#ffcc00">Rate</span> <span id="spd-display">Norm</span></div>
+    <div class="stat" style="font-size: 18px; color:#aaa">Dist <span id="progress-display">0%</span></div>
+</div>
+
+<div id="boss-hp-container"><div id="boss-hp-bar"></div></div>
+
+<div id="ui-layer">
+    <div id="start-screen" class="screen">
+        <h1>ATOMIC</h1>
+        <button onclick="startGame()">START</button>
+    </div>
+    
+    <div id="victory-screen" class="screen" style="display: none;">
+        <h2>CONGRATULATIONS</h2>
+        <div id="victory-sub" style="display:none;">
+            <p>INFINITY MODE START IN</p>
+            <div id="countdown-box">5</div>
+        </div>
+    </div>
+
+    <div id="game-over-screen" class="screen" style="display: none;">
+        <h2 style="color: #ff0055; font-size: 50px; text-shadow: 0 0 20px red;">FAILED</h2>
+        <p style="font-size: 24px;">SCORE: <span id="final-score">0</span></p>
+        <button onclick="startGame()">REBOOT</button>
+    </div>
+</div>
+
+<script>
+    // --- 3D & Game Variables ---
+    let scene, camera, renderer;
+    let playerGroup, enemies = [], bullets = [], gates = [], boss = null, bossBullets = [];
+    let track, starGeo, stars; 
+    let raycaster, mouseVector, groundPlane; 
+    
+    const clock = new THREE.Clock();
+
+    let gameRunning = false;
+    let score = 1;
+    let isInfinityMode = false;
+    let isTransitioning = false; 
+    let bossDefeated = false;
+    let inputX = 0;
+    
+    // [수정] 프레임 기반이 아닌 시간(초) 기반 타이머 변수들
+    let enemySpawnTimer = 0;
+    let gateSpawnTimer = 0;
+    let shootTimer = 0;
+    let worldDistance = 0; // 프레임 대신 이동 거리를 추적
+    let gateCounter = 0;   // 게이트 쌍 식별용 ID
+
+    let fireRate = 15; // 기존 로직 유지를 위한 변수 (표시용 및 계산용)
+    
+    const WORLD_WIDTH = 500;
+    const CAMERA_OFFSET_Z = 600; 
+    const CAMERA_HEIGHT = 450;   
+    const SPAWN_Z = -2500;       
+    const PLAYER_Z = 1000;        
+    
+    const SETTINGS = {
+        speed: 32,   // 32
+        playerSpeed: 0.35, 
+        spawnRate: 25,     // 60FPS 기준 25프레임 (약 0.41초)
+        gateRate: 150,     // 60FPS 기준 150프레임 (약 2.5초)
+        bossAppearDistance: 3000 // 60FPS 기준 3000프레임 이동 거리
+    };
+
+    // --- Sound System ---
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    let audioCtx;
+    const Sound = {
+        init: () => { if (!audioCtx) audioCtx = new AudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume(); },
+        playTone: (freq, type, duration, vol=0.1) => {
+            if(!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + duration);
+        },
+        shoot: () => Sound.playTone(800 + Math.random()*200, 'sawtooth', 0.03, 0.01), 
+        hit: () => Sound.playTone(200, 'sine', 0.08, 0.1),
+        gateBad: () => Sound.playTone(100, 'square', 0.3, 0.1),
+        gateGood: () => { Sound.playTone(600, 'sine', 0.1, 0.1); setTimeout(()=>Sound.playTone(1000,'sine',0.2,0.1), 50); },
+        win: () => { [440,554,659,880].forEach((f,i)=>setTimeout(()=>Sound.playTone(f,'square',0.2,0.1), i*100)); }
+    };
+
+    // --- 3D Initialization ---
+    function init3D() {
+        const container = document.getElementById('game-container');
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020205); 
+        scene.fog = new THREE.Fog(0x020205, 1500, 5000);
+
+        camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 6000);
+        camera.position.set(0, CAMERA_HEIGHT, PLAYER_Z + CAMERA_OFFSET_Z);
+        camera.lookAt(0, 0, PLAYER_Z - 200);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.toneMapping = THREE.ReinhardToneMapping;
+        container.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0x00ffff, 1.0);
+        dirLight.position.set(100, 500, 100);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        const trackWidth = WORLD_WIDTH + 80;
+        const trackGeo = new THREE.BoxGeometry(trackWidth, 10, 10000);
+        const trackMat = new THREE.MeshPhongMaterial({ 
+            color: 0x000000, 
+            emissive: 0x001133,
+            specular: 0x111111,
+            shininess: 100
+        });
+        track = new THREE.Mesh(trackGeo, trackMat);
+        track.position.set(0, -5, -2000);
+        track.receiveShadow = true;
+        scene.add(track);
+
+        const grid = new THREE.GridHelper(trackWidth, 20, 0x00ffff, 0x0044aa);
+        grid.position.set(0, 1, -2000);
+        grid.scale.z = 20;
+        scene.add(grid);
+
+        starGeo = new THREE.BufferGeometry();
+        const starCount = 2000;
+        const posArray = new Float32Array(starCount * 3);
+        for(let i=0; i<starCount*3; i++) {
+            posArray[i] = (Math.random() - 0.5) * 4000;
+        }
+        starGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const starMat = new THREE.PointsMaterial({
+            color: 0x00ffff,
+            size: 3,
+            transparent: true,
+            opacity: 0.8
+        });
+        stars = new THREE.Points(starGeo, starMat);
+        scene.add(stars);
+
+        playerGroup = new THREE.Group();
+        playerGroup.position.z = PLAYER_Z;
+        scene.add(playerGroup);
+
+        raycaster = new THREE.Raycaster();
+        mouseVector = new THREE.Vector2();
+        groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -10);
+
+        window.addEventListener('resize', onWindowResize, false);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('touchmove', onTouchMove, {passive: false});
+    }
+
+    function onMouseMove(event) {
+        if(!gameRunning) return;
+        event.preventDefault();
+        updateInputPosition(event.clientX, event.clientY);
+    }
+
+    function onTouchMove(event) {
+        if(!gameRunning) return;
+        event.preventDefault();
+        updateInputPosition(event.touches[0].clientX, event.touches[0].clientY);
+    }
+
+    function updateInputPosition(clientX, clientY) {
+        mouseVector.x = (clientX / window.innerWidth) * 2 - 1;
+        mouseVector.y = -(clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouseVector, camera);
+        const target = new THREE.Vector3();
+        raycaster.ray.intersectPlane(groundPlane, target);
+        if (target) {
+            inputX = Math.max(-WORLD_WIDTH/2, Math.min(WORLD_WIDTH/2, target.x));
+        }
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function createTextTexture(text) { // color 인자 제거 (배경 안 칠함)
+        const cvs = document.createElement('canvas');
+        cvs.width = 256; cvs.height = 128;
+        const ctx = cvs.getContext('2d');
+        
+        // [수정] 배경색 채우기 코드 삭제 -> 배경이 투명해짐
+        // ctx.fillStyle = color; 
+        // ctx.fillRect(0,0,256,128);
+        
+        // 테두리 (흰색)
+        ctx.lineWidth = 10; ctx.strokeStyle = "white"; ctx.strokeRect(0,0,256,128);
+        
+        // 글씨 (검정색)
+        ctx.fillStyle = "white"; 
+        ctx.font = "bold 60px monospace";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(text, 128, 64);
+        
+        return new THREE.CanvasTexture(cvs);
+    }
+
+    function createFloatingText(x, y, z, text, color, type='damage-text') {
+        const div = document.createElement('div');
+        div.className = `floating-text ${type}`;
+        div.textContent = text;
+        div.style.color = color;
+        const vec = new THREE.Vector3(x, y, z);
+        vec.project(camera);
+        const sx = (vec.x * .5 + .5) * window.innerWidth;
+        const sy = (-(vec.y * .5) + .5) * window.innerHeight;
+        div.style.left = `${sx}px`;
+        div.style.top = `${sy}px`;
+        document.body.appendChild(div);
+        if(type === 'damage-text') setTimeout(() => div.remove(), 800);
+        return div;
+    }
+
+    function updateEnemyHP(enemy) {
+        if (!enemy.active || !enemy.mesh) {
+            if (enemy.hpDiv) enemy.hpDiv.remove();
+            return;
+        }
+        const pos = enemy.mesh.position;
+        if (!enemy.hpDiv) {
+            enemy.hpDiv = createFloatingText(pos.x, pos.y, pos.z, enemy.hp, '#fff', 'hp-text');
+        } else {
+            enemy.hpDiv.textContent = enemy.hp;
+            const vec = new THREE.Vector3(pos.x, pos.y, pos.z);
+            vec.project(camera);
+            const sx = (vec.x * .5 + .5) * window.innerWidth;
+            const sy = (-(vec.y * .5) + .5) * window.innerHeight;
+            enemy.hpDiv.style.left = `${sx}px`;
+            enemy.hpDiv.style.top = `${sy}px`;
+        }
+    }
+
+    function updatePlayerLabel() {
+        const label = document.getElementById('player-score-label');
+        if (!gameRunning) {
+            label.style.display = 'none';
+            return;
+        }
+        label.style.display = 'block';
+        label.innerText = score;
+        const vec = new THREE.Vector3(playerGroup.position.x, 20, playerGroup.position.z);
+        vec.project(camera);
+        const sx = (vec.x * .5 + .5) * window.innerWidth;
+        const sy = (-(vec.y * .5) + .5) * window.innerHeight;
+        label.style.left = `${sx}px`;
+        label.style.top = `${sy - 50}px`;
+    }
+
+    // --- Game Logic Classes ---
+
+    class Enemy3D {
+        constructor() {
+            this.active = true;
+            
+            // 시간 경과에 따른 난이도 (거리 기반으로 추정)
+            let timeFactor = Math.floor((worldDistance / SETTINGS.speed) / 10); 
+            
+            let hpMultiplier = 1.0;
+            if (fireRate <= 3) hpMultiplier = 5.5;      
+            else if (fireRate <= 5) hpMultiplier = 2.5; 
+            else if (fireRate <= 10) hpMultiplier = 1.05;
+            
+            let scoreFactor = Math.floor(score * 0.3 * hpMultiplier);
+            if (score > 10000) {
+                scoreFactor += Math.floor((score - 10000) * 0.6);
+            }
+            if (isInfinityMode) timeFactor *= 2;
+            
+            this.hp = 1 + timeFactor + scoreFactor; 
+            this.maxHp = this.hp;
+            
+            const baseSize = 55;
+            const size = baseSize + Math.min(20, this.hp/20); 
+            const geo = new THREE.BoxGeometry(size, size, size);
+            const mat = new THREE.MeshPhongMaterial({ 
+                color: 0xff0055, emissive: 0x330011, shininess: 100
+            });
+            this.mesh = new THREE.Mesh(geo, mat);
+            
+            const edges = new THREE.EdgesGeometry(geo);
+            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaaaa }));
+            this.mesh.add(line);
+            
+            this.mesh.position.x = (Math.random() - 0.5) * (WORLD_WIDTH - 80);
+            this.mesh.position.y = size/2;
+            this.mesh.position.z = SPAWN_Z;
+            this.radius = size/2;
+            scene.add(this.mesh);
+            this.hpDiv = null;
+        }
+        update(scale) {
+            this.mesh.position.z += SETTINGS.speed * scale;
+            if (this.mesh.position.z > PLAYER_Z + 100) this.destroy();
+            updateEnemyHP(this);
+            if(this.mesh) {
+                this.mesh.rotation.x += 0.03 * scale;
+                this.mesh.rotation.y += 0.03 * scale;
+            }
+        }
+        takeDamage(dmg) {
+            this.hp -= dmg;
+            this.mesh.material.emissive.setHex(0xffffff);
+            setTimeout(() => { if(this.mesh) this.mesh.material.emissive.setHex(0x330011); }, 50);
+            if (this.hp <= 0) {
+                Sound.hit();
+                const reward = Math.max(1, Math.floor(this.maxHp * 0.075));
+                score += reward;
+                createFloatingText(this.mesh.position.x, 50, this.mesh.position.z, "+" + reward, "#00ff00");
+                this.destroy();
+            }
+        }
+        destroy() {
+            this.active = false;
+            scene.remove(this.mesh);
+            if(this.mesh.geometry) this.mesh.geometry.dispose();
+            if(this.mesh.material) this.mesh.material.dispose();
+            if(this.hpDiv) this.hpDiv.remove();
+        }
+    }
+
+class Gate3D {
+        constructor(isLeft, pairId) {
+            this.active = true;
+            this.pairId = pairId;
+            this.width = WORLD_WIDTH / 2 - 20;
+            this.height = 120;
+            
+            // 1. 값 설정 로직 (기존과 동일)
+            const baseVal = Math.max(5, Math.floor(score * 0.2));
+            const dynamicVal = Math.floor(baseVal * (0.8 + Math.random() * 0.4));
+            const isGood = Math.random() > 0.45;
+            let type, val, colorHex, opStr;
+            
+            if(isGood) {
+                type = Math.random()<0.6 ? 'ADD':'MUL';
+                val = type==='ADD' ? dynamicVal : (Math.floor(Math.random()*2)+2);
+                colorHex = '#00ffff'; opStr = type==='ADD' ? '+': 'x';
+                this.logic = { type, val };
+            } else {
+                type = Math.random()<0.6 ? 'SUB':'DIV';
+                val = type==='SUB' ? dynamicVal : 2;
+                colorHex = '#ff0055'; opStr = type==='SUB' ? '-': '/';
+                this.logic = { type, val };
+            }
+
+            // [수정] 2. 게이트 본체 (반투명 박스)
+            const geo = new THREE.BoxGeometry(this.width, this.height, 10);
+            const mat = new THREE.MeshPhongMaterial({ 
+                color: colorHex,       // 여기서 색상 지정
+                transparent: true, 
+                opacity: 0.5,          // 배경은 연하게
+                emissive: 0x111111
+            });
+            this.mesh = new THREE.Mesh(geo, mat);
+
+            // [추가] 3. 글씨판 (선명한 텍스트)
+            // 배경이 없는 텍스처 생성
+            const tex = createTextTexture(`${opStr}${val}`); 
+            const labelGeo = new THREE.PlaneGeometry(this.width, this.height);
+            const labelMat = new THREE.MeshBasicMaterial({ 
+                map: tex, 
+                transparent: true, 
+                opacity: 1.0           // 글씨는 진하게 (100%)
+            });
+            
+            const labelMesh = new THREE.Mesh(labelGeo, labelMat);
+            labelMesh.position.z = 6; // 박스(깊이 10)의 앞면(z=5)보다 살짝 앞에 배치
+            this.mesh.add(labelMesh); // 박스에 글씨판 부착
+            
+            // 위치 설정 (기존과 동일)
+            this.mesh.position.x = isLeft ? -WORLD_WIDTH/4 : WORLD_WIDTH/4;
+            this.mesh.position.y = this.height/2;
+            this.mesh.position.z = SPAWN_Z;
+            
+            scene.add(this.mesh);
+        }
+        
+        // update, disable, destroy 함수는 기존 코드 유지 (scale 적용된 버전)
+        update(scale) {
+            this.mesh.position.z += SETTINGS.speed * scale;
+            if(this.mesh.position.z > PLAYER_Z + 100) this.destroy();
+        }
+        disable() {
+            this.active = false;
+            this.mesh.material.opacity = 0.1;
+            this.mesh.material.color.setHex(0x333333);
+            // 자식으로 붙은 글씨판도 흐리게 처리
+            if(this.mesh.children.length > 0) {
+                this.mesh.children[0].material.opacity = 0.1;
+            }
+        }
+        destroy() {
+            this.active = false;
+            scene.remove(this.mesh);
+            this.mesh.geometry.dispose();
+            this.mesh.material.dispose();
+            // 자식(글씨판) 리소스 해제
+            if(this.mesh.children.length > 0) {
+                const label = this.mesh.children[0];
+                label.geometry.dispose();
+                label.material.dispose();
+                if(label.material.map) label.material.map.dispose();
+            }
+        }
+    }
+
+    class Bullet3D {
+        constructor(x, z, dmg) {
+            this.active = true;
+            this.damage = dmg;
+            const geo = new THREE.CylinderGeometry(2, 2, 40, 8);
+            geo.rotateX(Math.PI / 2);
+            const mat = new THREE.MeshBasicMaterial({ color: 0xaaffff });
+            this.mesh = new THREE.Mesh(geo, mat);
+            this.mesh.position.set(x, 25, z);
+            scene.add(this.mesh);
+        }
+        update(scale) {
+            this.mesh.position.z -= 55 * scale;
+            if(this.mesh.position.z < SPAWN_Z) this.destroy();
+        }
+        destroy() {
+            this.active = false;
+            scene.remove(this.mesh);
+        }
+    }
+
+    class Boss3D {
+        constructor() {
+            this.active = true;
+            this.hp = 100000000;
+            this.maxHp = this.hp;
+            this.width = 220;
+            const geo = new THREE.BoxGeometry(220, 220, 220);
+            const mat = new THREE.MeshPhongMaterial({ color: 0xaa0000, emissive: 0x550000, shininess: 80 });
+            this.mesh = new THREE.Mesh(geo, mat);
+            this.mesh.position.set(0, 110, SPAWN_Z);
+            scene.add(this.mesh);
+            
+            const eyeGeo = new THREE.BoxGeometry(40, 40, 10);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+            const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+            leftEye.position.set(-50, 40, 111);
+            const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+            rightEye.position.set(50, 40, 111);
+            this.mesh.add(leftEye);
+            this.mesh.add(rightEye);
+            
+            this.state = 'ENTERING';
+            this.targetZ = PLAYER_Z - 1450;
+            this.moveDir = 1;
+            this.attackTimer = 0;
+            document.getElementById('boss-hp-container').style.display = 'block';
+        }
+        update(scale) {
+            const hpBar = document.getElementById('boss-hp-bar');
+            hpBar.style.width = Math.max(0, (this.hp/this.maxHp)*100) + '%';
+            
+            if (this.state === 'ENTERING') {
+                this.mesh.position.z += 20 * scale; 
+                if(this.mesh.position.z >= this.targetZ) this.state = 'FIGHT';
+            } else if (this.state === 'FIGHT') {
+                this.mesh.position.x += (this.moveDir * 3) * scale;
+                if(this.mesh.position.x > 150 || this.mesh.position.x < -150) this.moveDir *= -1;
+                
+                this.attackTimer += 1 * scale; 
+                if(this.attackTimer > 60) { 
+                    this.attack();
+                    this.attackTimer = 0;
+                }
+            }
+        }
+        attack() {
+            Sound.shoot();
+            const offsets = [0, -70, 70, -140, 140];
+            offsets.forEach(off => {
+                const b = new BossBullet3D(this.mesh.position.x + off, this.mesh.position.z, playerGroup.position.x);
+                bossBullets.push(b);
+            });
+        }
+        takeDamage(dmg) {
+            this.hp -= dmg;
+            this.mesh.material.emissive.setHex(0xffaaaa);
+            setTimeout(()=> this.mesh && this.mesh.material.emissive.setHex(0x550000), 50);
+            if(this.hp <= 0) {
+                this.destroy();
+                winBoss();
+            }
+        }
+        destroy() {
+            this.active = false;
+            scene.remove(this.mesh);
+            document.getElementById('boss-hp-container').style.display = 'none';
+        }
+    }
+
+    class BossBullet3D {
+        constructor(x, z, targetX) {
+            this.active = true;
+            const geo = new THREE.SphereGeometry(12, 8, 8);
+            const mat = new THREE.MeshBasicMaterial({ color: 0xff0055 });
+            this.mesh = new THREE.Mesh(geo, mat);
+            this.mesh.position.set(x, 25, z);
+            
+            const dx = targetX - x;
+            const dz = PLAYER_Z - z;
+            const angle = Math.atan2(dz, dx);
+            this.vx = Math.cos(angle) * 20;
+            this.vz = Math.sin(angle) * 20;
+            scene.add(this.mesh);
+        }
+        update(scale) {
+            this.mesh.position.x += this.vx * scale;
+            this.mesh.position.z += this.vz * scale;
+            if(this.mesh.position.z > PLAYER_Z + 200) this.destroy();
+        }
+        destroy() {
+            this.active = false;
+            scene.remove(this.mesh);
+        }
+    }
+
+    // --- Core Functions ---
+
+    function updatePlayerVisuals() {
+        const unitRadius = 11;
+        const targetCount = Math.min(score, 50);
+        const currentCount = playerGroup.children.length;
+        if(currentCount < targetCount) {
+            for(let i=0; i < targetCount - currentCount; i++) {
+                const geo = new THREE.SphereGeometry(unitRadius, 16, 16);
+                const mat = new THREE.MeshLambertMaterial({ color: 0x00ffff });
+                const mesh = new THREE.Mesh(geo, mat);
+                if (playerGroup.children.length === 0) {
+                    mesh.position.set(0, unitRadius, 0);
+                } else {
+                    const r = Math.sqrt(Math.random()) * 50;
+                    const theta = Math.random() * 2 * Math.PI;
+                    mesh.position.set(r * Math.cos(theta), unitRadius, r * Math.sin(theta));
+                }
+                playerGroup.add(mesh);
+            }
+        } else if (currentCount > targetCount) {
+            for(let i=0; i < currentCount - targetCount; i++) {
+                playerGroup.remove(playerGroup.children[playerGroup.children.length - 1]);
+            }
+        }
+    }
+
+    function spawnLogic(dt) {
+        if (isTransitioning) return;
+        
+        // [수정] 프레임이 아닌 시간(dt)을 누적하여 스폰 체크
+        enemySpawnTimer += dt;
+        // 60FPS 기준 spawnRate프레임은 (spawnRate / 60)초와 같음
+        if (enemySpawnTimer > SETTINGS.spawnRate / 60) {
+            enemies.push(new Enemy3D());
+            enemySpawnTimer = 0;
+        }
+
+        gateSpawnTimer += dt;
+        if (gateSpawnTimer > SETTINGS.gateRate / 60) {
+            gateCounter++; // 유니크 ID 증가
+            gates.push(new Gate3D(true, gateCounter));
+            gates.push(new Gate3D(false, gateCounter));
+            gateSpawnTimer = 0;
+        }
+
+        // [수정] 이동 거리 기반 보스 등장 체크 (프레임 기반 X)
+        // 기존 3000프레임 = 3000 * speed 거리
+        const bossDist = SETTINGS.bossAppearDistance * SETTINGS.speed;
+        if (!isInfinityMode && !boss && worldDistance > bossDist) {
+            boss = new Boss3D();
+        }
+    }
+
+    function checkCollisions() {
+        const pPos = playerGroup.position;
+        enemies.forEach(e => {
+            if(!e.active) return;
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                if(Math.abs(b.mesh.position.z - e.mesh.position.z) < e.radius + 25 &&
+                   Math.abs(b.mesh.position.x - e.mesh.position.x) < e.radius + 25) {
+                    e.takeDamage(b.damage);
+                    b.destroy();
+                    bullets.splice(i, 1);
+                    if(!e.active) break;
+                }
+            }
+            if(e.active && Math.abs(e.mesh.position.z - pPos.z) < 60 &&
+               Math.abs(e.mesh.position.x - pPos.x) < e.radius + 40) {
+                if (score >= e.hp) {
+                    score -= e.hp; 
+                    Sound.gateBad();
+                    createFloatingText(pPos.x, 50, pPos.z, `-${e.hp}`, "red");
+                    e.destroy();
+                } else {
+                    score = 0; 
+                    Sound.gateBad();
+                }
+            }
+        });
+        gates.forEach(g => {
+            if(!g.active) return;
+            if(Math.abs(g.mesh.position.z - pPos.z) < 30 &&
+               Math.abs(g.mesh.position.x - pPos.x) < g.width/2 + 20) {
+                const old = score;
+                if(g.logic.type === 'ADD') score += g.logic.val;
+                else if(g.logic.type === 'SUB') score -= g.logic.val;
+                else if(g.logic.type === 'MUL') score *= g.logic.val;
+                else score = Math.floor(score / g.logic.val);
+                if(score < 0) score = 0;
+                const diff = score - old;
+                const color = diff >= 0 ? '#00ffff' : '#ff0055';
+                createFloatingText(pPos.x, 50, pPos.z, (diff>=0?'+':'')+diff, color);
+                if(diff >=0) Sound.gateGood(); else Sound.gateBad();
+                gates.forEach(og => { if(og.pairId === g.pairId) og.disable(); });
+            }
+        });
+        if(boss && boss.active) {
+             for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i];
+                if(boss && Math.abs(b.mesh.position.z - boss.mesh.position.z) < 110 &&
+                   Math.abs(b.mesh.position.x - boss.mesh.position.x) < 110) {
+                    boss.takeDamage(b.damage);
+                    b.destroy();
+                    bullets.splice(i, 1);
+                    if(!boss || !boss.active) break;
+                }
+            }
+            bossBullets.forEach(bb => {
+                if(!bb.active) return;
+                if(Math.abs(bb.mesh.position.z - pPos.z) < 40 &&
+                   Math.abs(bb.mesh.position.x - pPos.x) < 40) {
+                    const loss = Math.ceil(Math.max(1, score * 0.3));
+                    score -= loss;
+                    if(score < 0) score = 0;
+                    Sound.gateBad();
+                    createFloatingText(pPos.x, 50, pPos.z, `-${loss}`, "#ff0055");
+                    bb.destroy();
+                }
+            });
+            if(boss && boss.active && Math.abs(boss.mesh.position.z - pPos.z) < 120 && Math.abs(boss.mesh.position.x - pPos.x) < 120) {
+                score = 0;
+            }
+        }
+    }
+
+    function gameLoop() {
+        if(!gameRunning) return;
+        requestAnimationFrame(gameLoop);
+        
+        const dt = clock.getDelta();
+        const timeScale = Math.min(dt * 60, 4.0); 
+
+        playerGroup.position.x += (inputX - playerGroup.position.x) * SETTINGS.playerSpeed * timeScale;
+        
+        // 이동 거리 누적 (보스 등장 등 로직용)
+        worldDistance += SETTINGS.speed * timeScale;
+
+        let reduction = 0;
+        if (score < 50) {
+            reduction = Math.floor(score / 5); 
+        } else {
+            reduction = 10 + Math.floor((score - 50) / 50); 
+        }
+        
+        fireRate = Math.max(3, 15 - reduction);
+        const bulletCount = Math.min(7, 1 + Math.floor(score / 40));
+        let dmg = Math.max(1, Math.floor(score / (bulletCount * 6))); 
+        if (fireRate <= 3) {
+            dmg = Math.max(1, Math.floor(dmg * 0.75));
+        }
+
+        // [수정] 발사 로직: 시간(dt) 누적 방식
+        shootTimer += dt;
+        // fireRate는 프레임 단위였으므로 초 단위로 변환 ( / 60 )
+        const fireInterval = fireRate / 60; 
+        
+        if (shootTimer >= fireInterval && score > 0) {
+            shootTimer = 0; // 타이머 리셋
+            for(let i=0; i<bulletCount; i++) {
+                let offset = 0;
+                if (i > 0) {
+                    const side = i % 2 === 0 ? -1 : 1; 
+                    const dist = Math.ceil(i / 2);
+                    offset = side * dist * 8; 
+                }
+                bullets.push(new Bullet3D(playerGroup.position.x + offset, PLAYER_Z, dmg));
+            }
+            if(score > 0) Sound.shoot();
+        }
+
+        updatePlayerVisuals();
+        updatePlayerLabel();
+
+        stars.position.z += SETTINGS.speed * 0.8 * timeScale; 
+        if(stars.position.z > 2000) stars.position.z = -2000;
+
+        enemies.forEach((e, i) => { e.update(timeScale); if(!e.active) enemies.splice(i, 1); });
+        gates.forEach((g, i) => { g.update(timeScale); if(!g.active && g.mesh.position.z > PLAYER_Z + 150) { g.destroy(); gates.splice(i,1); } }); 
+        bullets.forEach((b, i) => { b.update(timeScale); if(!b.active) bullets.splice(i, 1); });
+        
+        if(boss && boss.active) boss.update(timeScale);
+        bossBullets.forEach((b, i) => { b.update(timeScale); if(!b.active) bossBullets.splice(i, 1); });
+
+        spawnLogic(dt);
+        checkCollisions();
+        
+        let speedText = "Normal";
+        if(fireRate <= 10) speedText = "Fast";
+        if(fireRate <= 5) speedText = "Super";
+        if(fireRate <= 3) speedText = "MAX!!";
+        document.getElementById('spd-display').innerText = speedText;
+
+        document.getElementById('score-display').innerText = score;
+        const progress = isInfinityMode ? '∞' : Math.min(100, Math.floor(worldDistance / (SETTINGS.bossAppearDistance * SETTINGS.speed) * 100)) + '%';
+        document.getElementById('progress-display').innerText = progress;
+
+        if(score <= 0) gameOver();
+        
+        renderer.render(scene, camera);
+    }
+
+    function winBoss() {
+        boss = null;
+        bossBullets.forEach(b => b.destroy());
+        bossBullets = [];
+        
+        isTransitioning = true;
+        Sound.win();
+        
+        const victoryScreen = document.getElementById('victory-screen');
+        const victorySub = document.getElementById('victory-sub');
+        const countdownBox = document.getElementById('countdown-box');
+        
+        victoryScreen.style.display = 'block';
+        victorySub.style.display = 'none';
+        
+        setTimeout(() => {
+            victorySub.style.display = 'block';
+            let count = 5;
+            countdownBox.innerText = count;
+            
+            const timer = setInterval(() => {
+                count--;
+                if(count > 0) {
+                    countdownBox.innerText = count;
+                    Sound.playTone(600 + (5-count)*100, 'sine', 0.1); 
+                } else {
+                    clearInterval(timer);
+                    victoryScreen.style.display = 'none';
+                    isTransitioning = false;
+                    isInfinityMode = true;
+                    Sound.playTone(1200, 'square', 0.3);
+                    createFloatingText(0, 100, PLAYER_Z, "INFINITY START!", "cyan");
+                }
+            }, 1000);
+            
+        }, 3000);
+    }
+
+    function gameOver() {
+        gameRunning = false;
+        document.getElementById('hud').style.display = 'none';
+        document.getElementById('player-score-label').style.display = 'none';
+        document.getElementById('game-over-screen').style.display = 'block';
+        document.getElementById('final-score').innerText = score;
+        document.getElementById('bgm').pause(); 
+    }
+
+    function startGame() {
+        if(!scene) init3D();
+        Sound.init();
+        
+        const bgm = document.getElementById('bgm');
+        bgm.volume = 0.05;
+        bgm.play(); 
+        
+        if (boss) {
+            boss.destroy();
+            boss = null;
+        }
+
+        gameRunning = true;
+        score = 1; isInfinityMode = false; boss = null; bossDefeated = false;
+        isTransitioning = false;
+        inputX = 0;
+        
+        // 타이머 및 거리 초기화
+        enemySpawnTimer = 0;
+        gateSpawnTimer = 0;
+        shootTimer = 0;
+        worldDistance = 0;
+        gateCounter = 0;
+        
+        enemies.forEach(e => e.destroy()); enemies = [];
+        gates.forEach(g => g.destroy()); gates = [];
+        bullets.forEach(b => b.destroy()); bullets = [];
+        bossBullets.forEach(b => b.destroy()); bossBullets = [];
+        if(playerGroup) {
+            while(playerGroup.children.length > 0) playerGroup.remove(playerGroup.children[0]);
+        }
+        
+        document.querySelectorAll('.screen').forEach(el => el.style.display = 'none');
+        document.getElementById('hud').style.display = 'flex';
+        document.getElementById('boss-hp-container').style.display = 'none';
+        
+        gameLoop();
+    }
+
+    init3D();
+    renderer.render(scene, camera);
+
+</script>
+</body>
+</html>
